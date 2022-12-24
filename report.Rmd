@@ -1,0 +1,436 @@
+---
+title: "Wastewater Surveillance of SARS-CoV-2 for Predicting COVID-19 Cases in Minnesota"
+author: |
+  | King Yiu Suen
+  | University of Minnesota
+output:
+  bookdown::pdf_document2:
+    citation_package: natbib
+    fig_caption: yes
+    number_sections: yes
+header-includes:
+    - \usepackage{setspace} \onehalfspacing
+bibliography: "references.bib"
+biblio-style: apalike
+fontsize: 12pt
+geometry: margin=1in
+abstract: "
+Wastewater-based epidemiology provides an approach for assessing the prevalence of COVID-19 in a sewer service area. In this study, SARS‐CoV‐2 RNA was detected in 40 wastewater treatment plants of varying sizes and served populations across the state of Minnesota during 2022. Various linear regression models were investigated to predict the weekly case count from SARS‐CoV‐2 RNA concentrations under various transformation and normalization methods. It is found that the relationship between COVID-19 incidence and SARS-CoV-2 RNA in wastewater may be treatment plant-specific. Including the vaccination rate in the model may be helpful but the results are not very robust over different forecast horizons. The case count of the previous week tends to be a stronger predictor than SARS‐CoV‐2 RNA concentrations.
+"
+---
+
+```{r setup, echo=FALSE, cache=FALSE, message=FALSE}
+library(knitr)
+library(kableExtra)
+library(tidyr)
+library(ggplot2)
+library(modeest)
+theme_set(theme_bw())
+
+opts_chunk$set(
+  echo = FALSE,
+  prompt = FALSE, 
+  comment = NA, 
+  message = FALSE, 
+  warning = FALSE,
+  fig.align = "center"
+)
+
+source("data_utils.R")
+source("training_utils.R")
+
+root_dir <- "~/wastewater"
+df <- load_data(root_dir)
+```
+
+# Introduction {#intro}
+
+Coronavirus disease 2019 (COVID-19), caused by severe acute respiratory syndrome coronavirus 2 (SARS-CoV-2), has infected millions of people across the globe and resulted in significant health and economic impacts. Consequently, methods for detecting and tracking this infectious disease at the community level are urgently needed. 
+
+Mass community testing is costly and the demand for tests frequently exceeds the capacity of testing facilities [@barasa2020assessing], not to mention that not everyone has access to testing due to economic, geographic, or social restrictions. Furthermore, test results are a lagging indicator of the pandemic's progression, because testing is usually prompted by symptoms, which may take 2 weeks to show up after infection [@lauer2020incubation]. Thus, delays may occur between the appearance of symptoms, testing and the reporting of test results [@peccia2020measurement]. Finally, it is estimated that as many as 45\% of COVID-19 cases are asymptomatic [@li2020substantial; @nishiura2020estimation; @oran2020prevalence; @post2020dynamic]. Considering that people only seek medical attention and undergo diagnostic testing if they are symptomatic, the number of confirmed clinical cases may grossly underestimate the prevalence of the disease.
+
+Wastewater-based epidemiology (WBE) is an emerging method of monitoring trends of the virus in communities. In WBE, wastewater is sampled from wastewater treatment plants (WWTPs) and is tested for signatures of viruses excreted via feces. The presence of viruses in wastewater samples informs the potential of viral outbreaks in the communities served by those plants. WBE has been successfully employed as a surveillance tool for diseases such as SARS, hepatitis A, and polio [@hellmer2014detection; @manor1999detection; @ye2016survivability]. With regard to SARS-CoV-2, viral particles are reported to be shed in feces from infected individuals even if they are asymptomatic [@chan2021systematic; @chen2020presence; @cheung2020gastrointestinal; @parasa2020prevalence; @wong2020detection]. Recent studies have shown that WBE is able to predict COVID-19 prevalence even earlier than clinical case data [@peccia2020measurement; @ahmed2020first; @arora2020sewage; @randazzo2020sars], supporting the idea that WBE can be used as an early warning system to identify disease hotspots.
+
+Estimating the SARS-CoV-2 RNA concentrations in wastewater (gene copies per litre) is complicated, as the dilution and fecal strength in the wastewater may vary between sampling dates. It has been recommended to multiply the viral concentration in wastewater by the flow of the sampled location (the volume of wastewater that passed through the location in a day) to obtain the viral concentrations in gene copies per day, and account for changes in sanitary sewer contributions [@hasan2021detection; @weidhaas2021correlation]. However, the flow rate is not stable and is impacted by many factors such as rainstorms. Normalizing SARS-CoV-2 RNA concentrations by indicators of human fecal waste is also common, because feces in wastewater can have variable levels of SARS-CoV-2 depending upon the amount of water used per toilet flush or body washing [@zhan2022relationships]. The contribution of SARS-CoV-2 from human sourced water can then be estimated by dividing the measured SARS-CoV-2 concentration by the concentration of the human waste indicator [@zhan2022relationships]. A typically examined fecal marker is Pepper Mild Mottle Virus (PMMoV) [@maal2023does; @zhan2022relationships]. Previous studies have shown that PMMoV is the most abundant RNA virus in human feces and it is shed in large quantities in wastewater [@hamza2019pepper; @kitajima2014relative; @kitajima2018pepper; @rosario2009pepper; @zhang2006rna]. It is also highly stable in wastewater, and its concentrations showed little seasonal variation [@kitajima2014relative; @kitajima2018pepper].
+
+The main objective of this study is to develop predictive models to predict the number of COVID-19 cases using wastewater samples from 40 WWTPs in Minnesota, USA from March 2022 to October 2022. In particular, the current study attempts to answer the following research questions:
+
+1. What is the best way to incorporate SARS-CoV-2 concentrations into the model? More specifically,
+    a. How should the virus concentrations be normalized?
+    b. Which SARS-CoV-2 gene should be used?
+    c. Does including lagged virus concentrations in the model improve the predictive performance?
+    d. Does a $\log_{10}$ transformation of the variables improve the predictive performance?
+2. Is it possible to develop one model for all WWTPs or is it necessary to develop one model for each WWTP?
+3. Is the vaccination rate a useful predictor?
+3. Is the lagged case count a more useful predictor than virus concentrations?
+4. How will the predictive performance be affected if the forecast horizon is increased?
+
+All statistical analyses were performed using R version 4.2.1 [@r2022].
+
+# Data Description
+
+Wastewater samples were collected from 40 WWTPs across the state of Minnesota. These 40 WWTPs represent a broad sampling of the Minnesota population serving a total of 191 zip codes and a population of 3,825,269 people, which is approximately 67\% of the total population of the state. The data collection period varied depending on the WWTP, but was typically between March 2022 and October 2022. The wasterwater samples were collected two days per week by each WWTP. For data analysis purposes, a weekly level average of measurements was used. The virus concentrations of three SARS-CoV-2 target genes, nucleocapsid (N), spike (S), and ORF1ab (O) proteins, were measured in the wastewater samples. Figure \@ref(fig:virus-concentration) displays the concentrations of N, S and O in three WWTPs, Little Falls, Northfield and Twin Cities. Out of the 1,213 samples collected, one was reported to have zero concentration of N, S and O. It was removed in further analyses. Among the remaining samples, 424 were reported to have zero virus concentration of S. Since S had too many zero values, this variable was not used in any further analyses. The Pearson correlation coefficient between the virus concentrations of N and S was 0.95.
+
+```{r virus-concentration, fig.width=7, fig.height=3, out.width="100%", fig.cap="Virus concentrations in Little Falls, Northfield and Twin Cities"}
+
+df %>%
+  filter(WWTP %in% c("Little Falls", "Northfield", "Twin Cities")) %>%
+  select(WWTP, SampleDate, O, S, N) %>%
+  pivot_longer(
+    cols = c("N", "O", "S"),
+    names_to = "GeneTarget",
+    values_to = "CopiesPerLiter"
+  ) %>%
+  ggplot(
+    aes(SampleDate, CopiesPerLiter, color = GeneTarget)
+  ) +
+    geom_line() +
+    geom_point() +
+    facet_wrap(. ~ WWTP) +
+    scale_colour_discrete(name = "Gene Target") +
+    scale_y_continuous(labels = scales::comma) +
+    labs(x = "Sample Date", y = "Virus Concentration (Copies per Liter)") +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1),
+      # Remove background grid
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()
+    )
+```
+
+The concentrations of a human fecal marker, PMMoV, were also determined in each wastewater sample. There were a few outliers in this variable for unknown reasons. PMMoV concentrations below the 5th percentile were replaced the 5th percentile value, and those above the 95th percentile were replaced with the 95th percentile value. The influent flow rate was provided by the participating WWTPs. 
+
+The weekly number of new infections for each WWTP service area were obtained from the Minnesota Department of Health (MDH). To allow a $\log_{10}$ transformation, any zero case counts were replaced with ones. The MDH also provided the number of people who have received at least one dose of COVID-19 vaccine, and the number of people with completed vaccine series (people who are fully vaccinated) in the areas served by each WWTP over time. The complete series could be one, two, or three doses depending on the person's age and which vaccine they received. It does not include booster doses.
+
+Table \@ref(tab:wwtp-desc) provides some descriptions of the participating WWTPs, including the sampling period, the number of samples collected, the size of the population served, as well as the mean and the standard deviations of weekly case count and flow.
+
+```{r wwtp-desc}
+df %>% 
+  group_by(WWTP) %>%
+  summarize(
+    Code = mfv(Code),
+    `No. of Samples` = n(),
+    `Population` = max(PopulationSize),
+    `Average Weekly Case Count` = mean(CaseCount)
+  ) %>%
+  kable(
+    booktabs = TRUE,
+    format = "latex",
+    linesep = "",
+    escape = FALSE,
+    digits = 2,
+    caption = "Descriptions of participating WWTPs"
+  ) %>%
+  kable_styling(font_size = 9)
+```
+
+# Statistical Analysis {#statistical-analysis}
+
+## Use of SARS-CoV-2 Concentrations {#virus-concentration}
+
+Denote $C_t$ as the COVID-19 case count at time $t$, and $W_t$ as the SARS-CoV-2 concentrations (either O or N) measured in a wastewater sample at time $t$. In this section, I compared different linear regression models for predicting $C_t$ from $W_t$. 
+
+As mentioned in section \@ref(intro), virus concentrations are commonly normalized by either flow: 
+\begin{equation}
+W_t^{\text{Flow}} = W_t \cdot \text{Flow}_t
+\end{equation}
+or a fecal marker such as PMMoV: 
+\begin{equation}
+W_t^{\text{PMMoV}} = W_t / \text{PMMoV}_t
+\end{equation}
+However, there have been contradictory findings on whether normalization of virus concentration can improve correlations with cases [@duvallet2022nationwide; @feng2021evaluation; @maal2023does]. Moreover, no study has examined using both flow and PMMoV to normalize the virus concentration: 
+\begin{equation}
+W_t^{\text{Flow \& PMMoV}} = W_t \cdot \text{Flow}_t / \text{PMMoV}_t
+\end{equation}
+It would be interesting to compare these three normalization approaches. Another question of interest concerns the concentrations of which SARS-CoV-2 gene should be used. Since N and O are highly correlated, it is expected that they will result in similar performance. It is also of interest to know whether adding lagged virus concentrations (e.g., $W_{t-1}$ and $W_{t-2}$) in the model will improve the predictive performance. Finally, it is prevalent in the wastewater literature to use a $\log_{10}$ transformation on the variables to meet assumptions for parametric analysis [@farkas2022comparative; @feng2021evaluation]. It would be useful to know whether a $\log_{10}$ transformation affects the predictive performance. 
+
+To summarize, I varied the following factors:
+
+1. Normalization of the virus concentrations (unnormalized, flow, PMMoV or both)
+2. SARS-CoV-2 gene to use (N or O)
+3. The number of lagged values for the virus concentrations (0, 1 or 2)
+4. Whether a $\log_{10}$ transformation was used on the dependent and independent variables
+
+The four factors were fully crossed, resulting in a total of $4 \cdot 2 \cdot 3 \cdot 2 = 48$ conditions. The models were fitted separately for each WWTP in each condition, since it is unclear whether we can use one model for all WWTPs (I will explore this question in the next section). To allow for comparisons between WWTPs with different sizes of population served, I divided the case count and virus concentrations by the population size. This ensures that the prediction errors for all WWTPs are theoretically on the same scale. Observations with missing values due to the creation of lagged variables were removed.
+
+To assess the model performance, a leave-one-out cross-validation (LOOCV) was used. The models were trained on $n - 1$ observations and validated on the remaining one observation, where $n$ is the sample size. The procedure was repeated $n$ times with each of the $n$ observations used exactly once for validation. The average of the $n$ prediction errors obtained was computed for model comparison. The evaluation metric was the root mean squared errors (RMSE) between the predicted value and the actual value. If the dependent variable was $\log_{10}$-transformed, the transformation was reversed to obtain the predictions on the original scale before the computation of RMSE.
+
+Table \@ref(tab:rmse-virus-concentration) displays the means and standard deviations of the cross-validated RMSE of the linear regression models under different conditions across WWTPs. For ease of presentation, the RMSE were multiplied by 100. When the raw data were used, normalizing by flow slightly reduced the RMSE, whereas normalizing by PMMoV or by both flow and PMMoV led to an increase in RMSE. When a $\log_{10}$ transformation was applied on the variables, both the mean and standard deviation of RMSE tended to decrease, especially when the virus concentrations were normalized by PMMoV. The RMSE for O was slightly lower than N, but was in generally very similar. This can be explained by the high correlation between them. Including extra lags generally worsened the predictive performance. 
+
+Overall, the model with the lowest RMSE is the one using the virus concentrations of O, normalized by flow, with $\log_{10}$ transformation, and without any lags:
+\begin{equation} (\#eq:best-model1)
+  \log_{10}(C_{t+1}) = \beta_0 + \beta_1 \log_{10}(W_t^{\text{Flow}}) + \epsilon
+\end{equation}
+where $\beta_j$'s are the regression coefficients, and $\epsilon$ is the residual. I explored various approach to expand upon this model in the future sections.
+
+```{r cache=TRUE}
+df <- process_data(df)
+
+rmse_all_conditions <- train_models(
+  formulas = c(
+    "CaseCount_Lead1 ~ N",
+    "CaseCount_Lead1 ~ N + N_Lag1",
+    "CaseCount_Lead1 ~ N + N_Lag1 + N_Lag2",
+    "log10(CaseCount_Lead1) ~ log10(N)",
+    "log10(CaseCount_Lead1) ~ log10(N) + log10(N_Lag1)",
+    "log10(CaseCount_Lead1) ~ log10(N) + log10(N_Lag1) + log10(N_Lag2)",
+    "CaseCount_Lead1 ~ I(N * Flow)",
+    "CaseCount_Lead1 ~ I(N * Flow) + I(N_Lag1 * Flow_Lag1)",
+    "CaseCount_Lead1 ~ I(N * Flow) + I(N_Lag1 * Flow_Lag1) + I(N_Lag2 * Flow_Lag2)",
+    "log10(CaseCount_Lead1) ~ I(log10(N * Flow))",
+    "log10(CaseCount_Lead1) ~ I(log10(N * Flow)) + I(log10(N_Lag1 * Flow_Lag1))",
+    "log10(CaseCount_Lead1) ~ I(log10(N * Flow)) + I(log10(N_Lag1 * Flow_Lag1)) + I(log10(N_Lag2 * Flow_Lag2))",
+    "CaseCount_Lead1 ~ I(N / PMMoV)",
+    "CaseCount_Lead1 ~ I(N / PMMoV) + I(N_Lag1 / PMMoV_Lag1)",
+    "CaseCount_Lead1 ~ I(N / PMMoV) + I(N_Lag1 / PMMoV_Lag1) + I(N_Lag2 / PMMoV_Lag2)",
+    "log10(CaseCount_Lead1) ~ I(log10(N / PMMoV))",
+    "log10(CaseCount_Lead1) ~ I(log10(N / PMMoV)) + I(log10(N_Lag1 / PMMoV_Lag1))",
+    "log10(CaseCount_Lead1) ~ I(log10(N / PMMoV)) + I(log10(N_Lag1 / PMMoV_Lag1)) + I(log10(N_Lag2 / PMMoV_Lag2))",
+    "CaseCount_Lead1 ~ I(N * Flow / PMMoV)",
+    "CaseCount_Lead1 ~ I(N * Flow / PMMoV) + I(N_Lag1 * Flow_Lag1 / PMMoV_Lag1)",
+    "CaseCount_Lead1 ~ I(N * Flow / PMMoV) + I(N_Lag1 * Flow_Lag1 / PMMoV_Lag1) + I(N_Lag2 * Flow_Lag2 / PMMoV_Lag2)",
+    "log10(CaseCount_Lead1) ~ I(log10(N * Flow / PMMoV))",
+    "log10(CaseCount_Lead1) ~ I(log10(N * Flow / PMMoV)) + I(log10(N_Lag1 * Flow_Lag1 / PMMoV_Lag1))",
+    "log10(CaseCount_Lead1) ~ I(log10(N * Flow / PMMoV)) + I(log10(N_Lag1 * Flow_Lag1 / PMMoV_Lag1)) + I(log10(N_Lag2 * Flow_Lag2 / PMMoV_Lag2))",
+    "CaseCount_Lead1 ~ O",
+    "CaseCount_Lead1 ~ O + O_Lag1",
+    "CaseCount_Lead1 ~ O + O_Lag1 + O_Lag2",
+    "log10(CaseCount_Lead1) ~ log10(O)",
+    "log10(CaseCount_Lead1) ~ log10(O) + log10(O_Lag1)",
+    "log10(CaseCount_Lead1) ~ log10(O) + log10(O_Lag1) + log10(O_Lag2)",
+    "CaseCount_Lead1 ~ I(O * Flow)",
+    "CaseCount_Lead1 ~ I(O * Flow) + I(O_Lag1 * Flow_Lag1)",
+    "CaseCount_Lead1 ~ I(O * Flow) + I(O_Lag1 * Flow_Lag1) + I(O_Lag2 * Flow_Lag2)",
+    "log10(CaseCount_Lead1) ~ I(log10(O * Flow))",
+    "log10(CaseCount_Lead1) ~ I(log10(O * Flow)) + I(log10(O_Lag1 * Flow_Lag1))",
+    "log10(CaseCount_Lead1) ~ I(log10(O * Flow)) + I(log10(O_Lag1 * Flow_Lag1)) + I(log10(O_Lag2 * Flow_Lag2))",
+    "CaseCount_Lead1 ~ I(O / PMMoV)",
+    "CaseCount_Lead1 ~ I(O / PMMoV) + I(O_Lag1 / PMMoV_Lag1)",
+    "CaseCount_Lead1 ~ I(O / PMMoV) + I(O_Lag1 / PMMoV_Lag1) + I(O_Lag2 / PMMoV_Lag2)",
+    "log10(CaseCount_Lead1) ~ I(log10(O / PMMoV))",
+    "log10(CaseCount_Lead1) ~ I(log10(O / PMMoV)) + I(log10(O_Lag1 / PMMoV_Lag1))",
+    "log10(CaseCount_Lead1) ~ I(log10(O / PMMoV)) + I(log10(O_Lag1 / PMMoV_Lag1)) + I(log10(O_Lag2 / PMMoV_Lag2))",
+    "CaseCount_Lead1 ~ I(O * Flow / PMMoV)",
+    "CaseCount_Lead1 ~ I(O * Flow / PMMoV) + I(O_Lag1 * Flow_Lag1 / PMMoV_Lag1)",
+    "CaseCount_Lead1 ~ I(O * Flow / PMMoV) + I(O_Lag1 * Flow_Lag1 / PMMoV_Lag1) + I(O_Lag2 * Flow_Lag2 / PMMoV_Lag2)",
+    "log10(CaseCount_Lead1) ~ I(log10(O * Flow / PMMoV))",
+    "log10(CaseCount_Lead1) ~ I(log10(O * Flow / PMMoV)) + I(log10(O_Lag1 * Flow_Lag1 / PMMoV_Lag1))",
+    "log10(CaseCount_Lead1) ~ I(log10(O * Flow / PMMoV)) + I(log10(O_Lag1 * Flow_Lag1 / PMMoV_Lag1)) + I(log10(O_Lag2 * Flow_Lag2 / PMMoV_Lag2))"
+  ),
+  data = df,
+  cv_method = "LOOCV"
+)
+```
+
+```{r rmse-virus-concentration}
+rmse_all_conditions[, -1] <- rmse_all_conditions[, -1] * 100
+
+conditions <- expand.grid(
+  Lag = c(0, 1, 2),
+  Scale = c("Raw", "Log"),
+  Normalization = c("Unnormalized", "Flow", "PMMoV", "Flow & PMMoV"),
+  Gene = c("N", "O")
+)
+conditions <- conditions[c("Gene", "Normalization", "Scale", "Lag")]
+conditions$Mean <- apply(rmse_all_conditions[, -1], 1, mean)
+conditions$SD <- apply(rmse_all_conditions[, -1], 1, sd)
+
+kable(
+  list(conditions[1:24, ], conditions[25:48, ]),
+  booktabs = TRUE,
+  digits = 2,
+  linesep = "",
+  row.names = FALSE,
+  format = "latex",
+  caption = "Means and standard deviations of RMSE across WWTPs in all 48 conditions"
+) %>%
+  kable_styling(font_size = 8)
+```
+
+## Comparisons between Treatment Plants
+
+Building a separate model for each WWTP is not very a parsimonious solution. It would be ideal if it is possible to develop one model using the pooled data from all WWTPs. To examine whether it is possible to do so, I compared the estimated error variance and the estimated regression coefficients of $W_t^{\text{Flow}}$ of the model in \@ref(eq:best-model1) across WWTPs. If the estimated error variance and coefficients are similar, this would imply that the quality of the wastewater samples did not differ across WWTPs, and that the relationship between virus concentrations and case count did not differ across WWTPs. As a result, using one model for all WWTPs is justifiable. Otherwise, it may be more appropriate to use a separate model for each WWTP. Also, it would be interesting to examine whether a large estimated error variance was related to a lower estimated coefficient and a large $p$-value.
+
+```{r var-est, cache=TRUE}
+var_estimators <- get_var_estimators_by_WWTP("log10(CaseCount_Lead1) ~ I(log10(O * Flow))", df)
+kable(
+  list(var_estimators[1:20, ], var_estimators[21:40, ]), 
+  booktabs = TRUE,
+  digits = 2,
+  linesep = "",
+  escape = FALSE,
+  row.names = FALSE,
+  col.names = c("Code", "$\\hat{\\sigma}^2$"),
+  format = "latex",
+  caption = "Variance Estimators of the best model for each WWTP"
+) %>%
+  kable_styling(font_size = 10)
+```
+
+The variance estimator proposed by @rice1984bandwidth was used in this analysis. For a given dataset $(x_1, y_1), ..., (x_n, y_n)$, where $x_1 \leq x_2 \leq \cdots \leq x_n$, the Rice's variance estimator is
+
+\begin{equation}
+  \hat{\sigma}^2 = \frac{1}{2(n - 1)} \sum_{i=2}^n (y_i - y_{i-1})^2
+\end{equation}
+
+Unlike residual-based variance estimators, Rice's variance estimator does not require an estimate of $y$. In this analysis, the $x$ variable is $\log_{10}(W_t^{\text{Flow}})$ and the $y$ variable is $\log_{10}(C_{t+1})$. The results are displayed in Table \@ref(tab:var-est). The mean and standard deviation $\hat{\sigma}^2$ are `r round(mean(var_estimators[, 2]), 2)` and `r round(sd(var_estimators[, 2]), 2)` respectively. The $\hat{\sigma}^2$ is as low as 0.01 (EM and TC), and as high as 0.68 (LY). 
+
+```{r coef-best-model}
+coefs_best_model <- get_coefs_by_WWTP("log10(CaseCount_Lead1) ~ I(log10(O * Flow))", df)
+kable(
+  list(coefs_best_model[1:20, ], coefs_best_model[21:40, ]), 
+  booktabs = TRUE,
+  digits = 2,
+  linesep = "",
+  escape = FALSE,
+  row.names = FALSE,
+  col.names = c("Code", "Estimated Coefficient", "$p$-value"),
+  format = "latex",
+  caption = "Estimated Coefficients and $p$-values of $\\log_{10}(W_t^{\\text{flow}}$ for each WWTP"
+) %>%
+  kable_styling(font_size = 10)
+```
+
+Table \@ref(tab:coef-best-model) displays the estimated regression coefficients and $p$-values of $\log_{10}(W_t^{\text{Flow}})$ for each WWTP. It was found that the estimated coefficients ranged from `r round(min(coefs_best_model[, 2]), 2)` to `r round(max(coefs_best_model[, 2]), 2)` (mean = `r round(mean(coefs_best_model[, 2]), 2)`, SD = `r round(sd(coefs_best_model[, 2]), 2)`). Although the sign of the estimated coefficients in general did not differ across WWTPs, the magnitude varied a lot. The correlation between the variance estimate and the estimated regression coefficient was -0.59, and the correlation between the variance estimate and the $p$-value was 0.35. In other words, a larger variance estimate was related to a smaller estimated coefficient and a larger $p$-value.
+
+## Use of Vaccination Rate
+
+In this section, I examined whether including vaccination rate is helpful with predictions. Let $V_t^{\text{one}}$ be the percentage of people who have received at least one doses of vaccine out of the population served by a WWTP, and $V_t^{\text{full}}$ be the percentage of fully vaccinated people. The models to be investigated were built upon the model in Equation \@ref(eq:best-model1). In addition to the normalized virus concentration $W_t^{\text{Flow}}$, the models also considered the main effects of $V_t^{\text{one}}$ and/or $V_t^{\text{full}}$, as well as two- or three-way interactions between $W_t^{\text{Flow}}$, $V_t^{\text{one}}$ and $V_t^{\text{full}}$. The models are listed in Table \@ref(tab:rmse-vax), along with their means and standard deviations of the cross-validated RMSE across WWTPs. It was found that the model including the two-way interaction between $W_t^{\text{Flow}}$ and $V_t^{\text{one}}$ had the most accurate predictions:
+\begin{equation} (\#eq:best-model2)
+  \log_{10}(C_{t+1}) = \beta_0 + \beta_1 \log_{10}(W_t^{\text{Flow}}) + \beta_2 \log_{10}(V_t^{\text{full}}) + \beta_3 \log_{10}(W_t^{\text{Flow}}) \cdot \log_{10}(V_t^{\text{full}}) + \epsilon
+\end{equation}
+
+
+```{r rmse-vax, cache=TRUE}
+rmse_vax <- train_models(
+  formulas = c(
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) + log10(OneVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) + log10(FullVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) + log10(OneVaxCount) + log10(FullVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) * log10(OneVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) * log10(FullVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) * log10(OneVaxCount) * log10(FullVaxCount)"
+  ),
+  data = df,
+  by_WWTP = TRUE,
+  cv_method = "LOOCV"
+)
+rmse_vax[, -1] <- rmse_vax[, -1] * 100
+
+data.frame(
+  Formula = c(
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) + \\log_{10}(V_t^{\\text{one}})$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) + \\log_{10}(V_t^{\\text{full}})$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) + \\log_{10}(V_t^{\\text{one}}) + \\log_{10}(V^{\\text{full}}_t)$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V_t^{\\text{one}})$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V_t^{\\text{full}})$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V_t^{\\text{one}}) * \\log_{10}(V^{\\text{full}}_t)$"
+  ),
+  Mean = apply(rmse_vax[, -1], 1, mean),
+  SD = apply(rmse_vax[, -1], 1, sd)
+) %>%
+  kable(
+  booktabs = TRUE,
+  digits = 2,
+  linesep = "",
+  escape = FALSE,
+  row.names = FALSE,
+  format = "latex",
+  caption = "Means and standard deviations of RMSE across WWTPs in all 48 conditions"
+)
+```
+
+## Use of Lagged Case Count
+
+In this section, I examined whether virus concentrations were still a useful predictor for predicting $C_{t+1}$, if the lagged case count $C_t$ was included in the model. I compared the predictive performance of a model that only used $C_t$, a model that used the two-way interaction between $W_t^{\text{Flow}}$ and $V_t^{\text{one}}$, and a model that used both.
+
+```{r rmse-lagged-case-count, cache=TRUE}
+rmse_lagged_case_count <- train_models(
+  formulas = c(
+    "log10(CaseCount_Lead1) ~ log10(CaseCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) * log10(FullVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) * log10(FullVaxCount) + log10(CaseCount)"
+  ),
+  data = df,
+  cv_method = "LOOCV"
+)
+rmse_lagged_case_count[, -1] <- rmse_lagged_case_count[, -1] * 100
+
+data.frame(
+  Model = c(
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(C_t)$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V_t^{\\text{full}})$",
+    "$\\log_{10}(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V_t^{\\text{full}}) + \\log_{10}(C_t)$"
+  ),
+  Mean = apply(rmse_lagged_case_count[, -1], 1, mean),
+  SD = apply(rmse_lagged_case_count[, -1], 1, sd)
+) %>%
+  kable(
+    booktabs = TRUE,
+    digits = 2,
+    linesep = "",
+    escape = FALSE,
+    format = "latex",
+    caption = "Means and standard deviations of RMSE across WWTPs when using virus concentrations only, lagged case count only, and both in the model"
+  )
+```
+
+The models were again fitted separately for each WWTP and evaluated by a LOOCV. The results are presented in Table \@ref(tab:rmse-lagged-case-count). The model using the interaction between $W_t^{\text{Flow}}$ and $V_t^{\text{one}}$ had the lowest cross-validated RMSE, but the model that only used $C_t$ was able to achieve a very similar RMSE.
+
+## Prediction Accuracy Over Different Forecast Horizons
+
+In this section, I assessed the performance of predictions over different forecast horizons (same week, one week ahead and two weeks ahead). The same model in Equation \@ref(eq:best-model2) was fitted separately for each WWTP, with $\log_{10}(C_t), \log_{10}(C_{t+1})$ and $\log_{10}(C_{t+2})$ being the dependent variable. The means and standard deviations of the cross-validated RMSE are reported in the first three rows of Table \@ref(tab:rmse-forecast-horizon). Interestingly, the results demonstrate that predicting case count one week ahead is more accurate than predicting case count of the same week. The predictions for two weeks ahead is substantially worse than the predictions for the first week. For comparisons, I fitted the model in Equation \@ref(eq:best-model1) again with different forecast horizons. The results are more in line with what one would expect: the longer the forecast horizon, the more accurate the predictions (last three rows of Table \@ref(tab:rmse-forecast-horizon)).
+
+```{r rmse-forecast-horizon, cache=TRUE}
+rmse_forecast_horizon <- train_models(
+  formulas = c(
+    "log10(CaseCount) ~ log10(I(O * Flow)) * log10(FullVaxCount)",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow)) * log10(FullVaxCount)",
+    "log10(CaseCount_Lead2) ~ log10(I(O * Flow)) * log10(FullVaxCount)",
+    "log10(CaseCount) ~ log10(I(O * Flow))",
+    "log10(CaseCount_Lead1) ~ log10(I(O * Flow))",
+    "log10(CaseCount_Lead2) ~ log10(I(O * Flow))"
+  ),
+  data = df,
+  cv_method = "LOOCV"
+)
+rmse_forecast_horizon[, -1] <- rmse_forecast_horizon[, -1] * 100
+
+data.frame(
+  Model = c(
+    "$\\log(C_t) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V^{\\text{full}}_t)$",
+    "$\\log(C_{t+1}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V^{\\text{full}}_t)$",
+    "$\\log(C_{t+2}) \\sim \\log_{10}(W_t^{\\text{flow}}) * \\log_{10}(V^{\\text{full}}_t)$",
+    "$\\log(C_t) \\sim \\log(W_t^{\\text{flow}})$",
+    "$\\log(C_{t+1}) \\sim \\log(W_t^{\\text{flow}})$",
+    "$\\log(C_{t+2}) \\sim \\log(W_t^{\\text{flow}})$"
+  ),
+  Mean = apply(rmse_forecast_horizon[, -1], 1, mean),
+  SD = apply(rmse_forecast_horizon[, -1], 1, sd)
+) %>%
+  kable(
+    booktabs = TRUE,
+    digits = 2,
+    linesep = "",
+    escape = FALSE,
+    format = "latex",
+    col.names = c("Model", "Mean", "SD"),
+    caption = "Means and standard deviations of RMSE across WWTPs when predicting the case count of the same week, one week ahead and two weeks ahead"
+  ) %>%
+  pack_rows("Using $W_t^{\\mathrm{flow}}$ and $V_t^{\\\\mathrm{full}}$", 1, 3, escape = FALSE) %>%
+  pack_rows("Using $W_t^{\\mathrm{flow}}$ only", 4, 6, escape = FALSE)
+```
+
+# Conclusion {#conclusion}
+
+Consistent with some studies in the wastewater literature [@maal2023does; @feng2021evaluation; @duvallet2022nationwide], the current study found that the predictive performance did not improve after the normalization by either PMMoV alone or both PMMoV and flow. In fact, the prediction accuracy decreased, unless a $\log_{10}$ transformation was used. Normalization by flow was insensitive to the scale of the data. Moreover, the current findings suggest that the concentrations of either N or O can be used, as they resulted in similar predictions, most likely because they are highly correlated. Adding lagged virus concentrations to the model generally worsened the predictive performance. Using $\log_{10}$ transformation tended to improve the predictive performance.
+
+The estimated error variance and regression coefficient varied substantially across WWTPs. These findings suggest that the relationship between COVID-19 incidence and SARS-CoV-2 RNA in wastewater may be treatment plant-specific, and future work will need to continue investigating how to appropriately normalize data from different plants to allow for cross-plant comparisons. Additionally, this suggests that at present, COVID-19 WBE may need to be validated at individual plants.
+
+Using the vaccination rate in the model has been shown to improve the predictions. However, the results are not very consistent across different forecast horizons. It is possible that it is because the data are all collected in 2022, where the vaccination rate has already slowed down. People who want to be vaccinated have already been vaccinated, and people who don't are unlikely to change their minds. The restricted range of this variable may result in overfitting and an underestimation of its relationship with the case count.
+
+A somewhat discouraging result is that using lagged case count alone provided similar predictive performance to using both virus concentrations and vaccination rates. More research should be done to evaluate whether WBE is actually worthwhile.
+
+One shortcoming of this study is that the sampling period is rather short, and hence the available data are rather limited. The number of samples from each WWTP was mostly around 30. Moreover, the pandemic had been already slowing down during the sampling period. No data were available during any of the epidemic waves or lockdown periods in 2020 and 2021. Therefore, it is unclear that whether the current findings can be generalized to these situations. 
+
+# Reference
