@@ -120,8 +120,7 @@ df %>%
     escape = FALSE,
     digits = 2,
     caption = "Descriptions of participating WWTPs"
-  ) %>%
-  kable_styling(font_size = 9)
+  )
 ```
 
 # Statistical Analysis {#statistical-analysis}
@@ -273,7 +272,7 @@ The variance estimator proposed by @rice1984bandwidth was used in this analysis.
   \hat{\sigma}^2 = \frac{1}{2(n - 1)} \sum_{i=2}^n (y_i - y_{i-1})^2
 \end{equation}
 
-Unlike residual-based variance estimators, Rice's variance estimator does not require an estimate of $y$. In this analysis, the $x$ variable is $\log_{10}(W_t^{\text{Flow}})$ and the $y$ variable is $\log_{10}(C_{t+1})$. The results are displayed in Table \@ref(tab:var-est). The mean and standard deviation $\hat{\sigma}^2$ are `r round(mean(var_estimators[, 2]), 2)` and `r round(sd(var_estimators[, 2]), 2)` respectively. The $\hat{\sigma}^2$ is as low as 0.01 (EM and TC), and as high as 0.68 (LY). 
+Unlike residual-based variance estimators, Rice's variance estimator does not require an estimate of $y$. In this analysis, the $x$ variable is $\log_{10}(W_t^{\text{Flow}})$ and the $y$ variable is $\log_{10}(C_{t+1})$ (both were normalized by the population size). The results are displayed in Table \@ref(tab:var-est). The mean and standard deviation $\hat{\sigma}^2$ are `r round(mean(var_estimators[, 2]), 2)` and `r round(sd(var_estimators[, 2]), 2)` respectively. The $\hat{\sigma}^2$ is as low as 0.01 (EM and TC), and as high as 0.68 (LY). 
 
 ```{r coef-best-model}
 coefs_best_model <- get_coefs_by_WWTP("log10(CaseCount_Lead1) ~ I(log10(O * Flow))", df)
@@ -286,7 +285,7 @@ kable(
   row.names = FALSE,
   col.names = c("Code", "Estimated Coefficient", "$p$-value"),
   format = "latex",
-  caption = "Estimated Coefficients and $p$-values of $\\log_{10}(W_t^{\\text{flow}}$ for each WWTP"
+  caption = "Estimated Coefficients and $p$-values of $\\log_{10}(W_t^{\\text{flow}})$ for each WWTP"
 ) %>%
   kable_styling(font_size = 10)
 ```
@@ -336,7 +335,7 @@ data.frame(
   escape = FALSE,
   row.names = FALSE,
   format = "latex",
-  caption = "Means and standard deviations of RMSE across WWTPs in all 48 conditions"
+  caption = "Means and standard deviations of RMSE across WWTPs when including vaccination rates in the model"
 )
 ```
 
