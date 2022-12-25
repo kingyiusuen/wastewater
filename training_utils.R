@@ -31,7 +31,7 @@ train_one_model <- function(formula, data, model = "lm", cv_method = "none", num
   # Check if the response variable is log-transformed
   is_log_transformed <- grepl("log10", formula[2], fixed = TRUE)
   summary_function <- compute_rmse(reverse_log_transform = is_log_transformed)
-  
+
   # Arguments used to control the computational nuances of the training process
   train_control <- trainControl(
     method = cv_method,
@@ -39,7 +39,7 @@ train_one_model <- function(formula, data, model = "lm", cv_method = "none", num
     index = index,
     summaryFunction = summary_function
   )
-  
+
   # Fit the model
   train_object <- train(
     formula,
@@ -48,7 +48,7 @@ train_one_model <- function(formula, data, model = "lm", cv_method = "none", num
     trControl = train_control,
     ...
   )
-  
+
   if (cv_method == "none") {
     preds_and_obs <- data.frame(
       pred = train_object$finalModel$fitted.values,
@@ -102,14 +102,14 @@ get_coefs_by_WWTP <- function(formula, data, ...) {
 }
 
 
-compute_var_estimator <- function(x, y){
+compute_var_estimator <- function(x, y) {
   # Compute the variance estimator proposed by Rice (1984)
   # Reference: https://rstudio-pubs-static.s3.amazonaws.com/220965_c823353a5d654d239a00d3e210deb291.html
   data <- cbind(x, y)
   if (is.unsorted(x, na.rm = FALSE, strictly = FALSE)) {
     data <- data[order(x), ]
   }
-  
+
   sum_sq <- 0
   for (i in 2:nrow(data)) {
     sum_sq <- sum_sq + (data[i, 2] - data[i - 1, 2])^2

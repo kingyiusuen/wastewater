@@ -13,7 +13,7 @@ process_date <- function(df) {
   if (is.character(df$SampleDate)) {
     df <- df %>% mutate(SampleDate = as.Date(SampleDate, "%m/%d/%Y"))
   }
-  
+
   df <- df %>%
     # Get the year and the week number based on the SampleDate
     # Following the format of the case count data, the first day of the week is Sunday
@@ -36,7 +36,7 @@ load_data <- function(root_dir) {
     summarize(
       O = mean(O, na.rm = TRUE),
       S = mean(S, na.rm = TRUE),
-      N = mean(N, na.rm = TRUE), 
+      N = mean(N, na.rm = TRUE),
       PMMoV = mean(PMMoV, na.rm = TRUE)
     ) %>%
     mutate(
@@ -50,13 +50,13 @@ load_data <- function(root_dir) {
     rename(CaseCount = Case) %>%
     process_date() %>%
     select(Code, SampleDate, CaseCount, PopulationSize)
-  
+
   flow_data <- read_csv(paste0(root_dir, "/data/data_flow/Flow_2022-10-31_edited.csv")) %>%
     process_date() %>%
     select(Code, SampleDate, Flow) %>%
     group_by(Code, SampleDate) %>%
     summarize(Flow = mean(Flow, na.rm = TRUE))
-  
+
   vax_data <- read_csv(paste0(root_dir, "/data/data_vaccines/vaxbyweek_111022.csv")) %>%
     rename(OneVaxCount = PPL_One, FullVaxCount = PPL_Full) %>%
     process_date() %>%
@@ -72,7 +72,7 @@ load_data <- function(root_dir) {
 
 process_data <- function(df, divide_by_population = TRUE) {
   quantiles <- quantile(df$PMMoV, probs = c(0.05, 0.95), na.rm = TRUE)
-  df <- df %>% 
+  df <- df %>%
     mutate(
       # If PMMoV is below the 5th percentile, replace it the 5th percentile value
       # If PMMoV is above the 95th percentile, replace it the 95th percentile value
@@ -92,7 +92,7 @@ process_data <- function(df, divide_by_population = TRUE) {
     )
   }
 
-  df <- df %>% 
+  df <- df %>%
     group_by(Code) %>%
     mutate(
       CaseCount_Lag1 = lag(CaseCount, 1),
@@ -110,6 +110,6 @@ process_data <- function(df, divide_by_population = TRUE) {
     ) %>%
     filter(O > 0 & O_Lag1 > 0 & O_Lag2 > 0 & N > 0 & N_Lag1 > 0 & N_Lag2 > 0) %>%
     drop_na()
-  
+
   return(df)
 }
