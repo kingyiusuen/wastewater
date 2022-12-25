@@ -29,18 +29,22 @@ process_date <- function(df) {
 
 load_data <- function(root_dir) {
   wastewater_data <- read_csv(paste0(root_dir, "/data/data_wastewater/WWTP_NewTargets_withPMMoV.csv")) %>%
-    rename(O = ORFlab_Copies.L, S = S_Copies.L, N = N_Copies.L, PMMoV = PMMoV_Copies.L) %>%
+    rename(WWTP = Facility, O = ORFlab_Copies.L, S = S_Copies.L, N = N_Copies.L, PMMoV = PMMoV_Copies.L) %>%
     process_date() %>%
-    select(Code, SampleDate, O, S, N, PMMoV) %>%
-    group_by(Code, SampleDate) %>%
+    select(WWTP, Code, SampleDate, O, S, N, PMMoV) %>%
+    group_by(WWTP, Code, SampleDate) %>%
     summarize(
       O = mean(O, na.rm = TRUE),
       S = mean(S, na.rm = TRUE),
       N = mean(N, na.rm = TRUE), 
       PMMoV = mean(PMMoV, na.rm = TRUE)
     ) %>%
-    # Replace NaNs with NAs
-    mutate(PMMoV = ifelse(is.nan(PMMoV), NA, PMMoV))
+    mutate(
+      # Replace underscore with space
+      WWTP = gsub("_", " ", WWTP),
+      # Replace NaNs with NAs
+      PMMoV = ifelse(is.nan(PMMoV), NA, PMMoV)
+    )
 
   cases_data <- read_csv(paste0(root_dir, "/data/data_cases/cases-wwtp_2022-11-04.csv")) %>%
     rename(CaseCount = Case) %>%
@@ -58,15 +62,10 @@ load_data <- function(root_dir) {
     process_date() %>%
     select(Code, SampleDate, OneVaxCount, FullVaxCount)
 
-  wwtp_code_to_name_mapping <- read_csv(paste0(root_dir, "/data/county-sewer-zip-map/sewershed_cty.csv")) %>%
-    rename(Code = wwtp_key) %>%
-    select(WWTP, Code)
-  
   merged_data <- wastewater_data %>%
     inner_join(cases_data, c("Code", "SampleDate")) %>%
     inner_join(flow_data, c("Code", "SampleDate")) %>%
-    inner_join(vax_data, c("Code", "SampleDate")) %>%
-    left_join(wwtp_code_to_name_mapping, "Code")
+    inner_join(vax_data, c("Code", "SampleDate"))
   return(merged_data)
 }
 
