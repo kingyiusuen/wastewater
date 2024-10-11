@@ -1,6 +1,6 @@
 # Wastewater Surveillance of SARS-CoV-2 for Predicting COVID-19 Cases in Minnesota
 
-This is the repository for the code I used in my Plan B project for the degree of Master in Statistics at the University of Minnesota. The report was written in RMarkdown to ensure the reproducibility of the results. Here is the [PDF version of the report]().
+This is the repository for the code I used in my Plan B project for the degree of Master in Statistics at the University of Minnesota. The report was written in RMarkdown to ensure the reproducibility of the results. Here is the [PDF version of the report](https://github.com/kingyiusuen/wastewater/blob/main/report.pdf).
 
 ## Introduction
 
